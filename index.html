@@ -11,6 +11,11 @@
             width: 100%;
             margin: 0;
             padding: 0;
+            background-color: #f0f0f0; /* A light grey background */
+        }
+        .radar-layer {
+            opacity: 0;
+            transition: opacity 0.5s ease-in-out;
         }
         #controls {
             position: absolute;
@@ -38,19 +43,28 @@
             attribution: '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>'
         }).addTo(map);
 
-        var nwsRadar = L.tileLayer.wms("https://opengeo.ncep.noaa.gov/geoserver/conus/conus_bref_qcd/wms", {
-            layers: 'conus_bref_qcd',
-            format: 'image/png',
-            transparent: true,
-            attribution: "NWS Radar"
-        }).addTo(map);
+        var radarLayers = {
+            front: L.tileLayer.wms("https://opengeo.ncep.noaa.gov/geoserver/conus/conus_bref_qcd/wms", {
+                layers: 'conus_bref_qcd',
+                format: 'image/png',
+                transparent: true,
+                attribution: "NWS Radar",
+                className: 'radar-layer'
+            }).addTo(map),
+            back: L.tileLayer.wms("https://opengeo.ncep.noaa.gov/geoserver/conus/conus_bref_qcd/wms", {
+                layers: 'conus_bref_qcd',
+                format: 'image/png',
+                transparent: true,
+                attribution: "NWS Radar",
+                className: 'radar-layer'
+            }).addTo(map)
+        };
 
         const capabilitiesUrl = "https://opengeo.ncep.noaa.gov/geoserver/conus/conus_bref_qcd/wms?service=wms&version=1.3.0&request=GetCapabilities";
         let timestamps = [];
         let currentIndex = 0;
         let isPlaying = false;
-        let animationInterval = null;
-        const speed = 1000; // milliseconds
+        let animationTimeout = null;
 
         async function fetchTimestamps() {
             try {
@@ -68,26 +82,59 @@
             }
         }
 
-        function updateRadarLayer(time) {
-            nwsRadar.setParams({ time: time });
-            const timeOffset = Date.now() - new Date(time).getTime();
+        function animate() {
+            if (!isPlaying) return;
+
+            // Set front layer to current timestamp and make it visible
+            radarLayers.front.setParams({ time: timestamps[currentIndex] });
+            radarLayers.front.getContainer().style.opacity = 1;
+
+            // Update time offset display
+            const timeOffset = Date.now() - new Date(timestamps[currentIndex]).getTime();
             const minutesOld = Math.round(timeOffset / 1000 / 60);
             document.getElementById('time-offset').textContent = `(${minutesOld} min old)`;
+
+            // Preload the next frame on the back layer
+            let nextIndex = (currentIndex + 1) % timestamps.length;
+            radarLayers.back.setParams({ time: timestamps[nextIndex] });
+
+            // Calculate duration to next frame
+            const currentTime = new Date(timestamps[currentIndex]).getTime();
+            const nextTime = new Date(timestamps[nextIndex]).getTime();
+            let duration = nextTime - currentTime;
+
+            // Handle loop wrap around
+            if (duration < 0) {
+                // This will likely not be a huge gap in reality, but as a fallback:
+                duration = 500; // Default 0.5s for the last frame
+            }
+
+            animationTimeout = setTimeout(() => {
+                // The back layer is preloaded, so bring it to the front
+                radarLayers.back.bringToFront();
+
+                // Swap the layer references
+                [radarLayers.front, radarLayers.back] = [radarLayers.back, radarLayers.front];
+
+                // The new back layer (the old front layer) can now be faded out
+                radarLayers.back.getContainer().style.opacity = 0;
+
+                // Update index and continue animation, which will fade in the new front layer
+                currentIndex = nextIndex;
+                animate();
+            }, duration);
         }
 
         function toggleAnimation() {
             const playPauseButton = document.getElementById('play-pause');
-            if (isPlaying) {
-                clearInterval(animationInterval);
-                playPauseButton.textContent = 'Play';
-            } else {
-                playPauseButton.textContent = 'Pause';
-                animationInterval = setInterval(() => {
-                    currentIndex = (currentIndex + 1) % timestamps.length;
-                    updateRadarLayer(timestamps[currentIndex]);
-                }, speed);
-            }
             isPlaying = !isPlaying;
+            if (isPlaying) {
+                playPauseButton.textContent = 'Pause';
+                animate();
+            } else {
+                clearTimeout(animationTimeout);
+                playPauseButton.textContent = 'Play';
+            }
         }
 
         document.getElementById('play-pause').addEventListener('click', toggleAnimation);
@@ -95,7 +142,10 @@
         fetchTimestamps().then(() => {
             if (timestamps.length > 0) {
                 currentIndex = timestamps.length - 1;
-                updateRadarLayer(timestamps[currentIndex]);
+                // Initially set both layers to the last timestamp
+                radarLayers.front.setParams({ time: timestamps[currentIndex] });
+                radarLayers.front.getContainer().style.opacity = 1;
+                radarLayers.back.setParams({ time: timestamps[currentIndex] });
             }
         });
     </script>
