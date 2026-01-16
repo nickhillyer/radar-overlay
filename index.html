@@ -122,7 +122,7 @@
                 // Update index and continue animation, which will fade in the new front layer
                 currentIndex = nextIndex;
                 animate();
-            }, duration);
+            }, duration * 2);
         }
 
         function toggleAnimation() {
@@ -138,6 +138,10 @@
         }
 
         document.getElementById('play-pause').addEventListener('click', toggleAnimation);
+        document.getElementById('play-pause').addEventListener('touchstart', function(event) {
+            event.preventDefault();
+            toggleAnimation();
+        });
 
         fetchTimestamps().then(() => {
             if (timestamps.length > 0) {
@@ -146,6 +150,7 @@
                 radarLayers.front.setParams({ time: timestamps[currentIndex] });
                 radarLayers.front.getContainer().style.opacity = 1;
                 radarLayers.back.setParams({ time: timestamps[currentIndex] });
+                toggleAnimation();
             }
         });
     </script>
